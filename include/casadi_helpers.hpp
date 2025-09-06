@@ -64,6 +64,9 @@ namespace casadi_helpers {
 
     class CaSolver {
     public:
+        using ParamT = decltype(std::declval<casadi::Opti>().parameter(0,0));
+        ParamT eq_con_param_;
+        ParamT eq_bias_param_;
         casadi::Opti opti;
         casadi::MX z; // Decision variables
         casadi::MX obj; // Objective function
@@ -79,8 +82,10 @@ namespace casadi_helpers {
             // this->test_param = this->opti.parameter();
             this->z = this->opti.variable(ndv); // decision variables
             if (neq > 0) {
-                this->eq_con = this->opti.parameter(neq, ndv);
-                this->eq_bias = this->opti.parameter(neq);
+                this->eq_con_param_ = this->opti.parameter(neq, ndv);
+                this->eq_bias_param_ = this->opti.parameter(neq);
+                this->eq_con = this->eq_con_param_;
+                this->eq_bias = this->eq_bias_param_;
                 this->opti.subject_to(casadi::MX::mtimes(eq_con, z) == eq_bias); // equality constraints
             }
             if (nineq > 0) {

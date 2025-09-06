@@ -1,3 +1,4 @@
+#include "constraint.hpp"
 #include "dynamics.hpp"
 #include <iostream>
 
@@ -133,6 +134,7 @@ namespace whole_body_roller {
         // Update the number of contact points in the decision variables
         for (const auto& ee : this->end_effectors) {
             if (ee.state == whole_body_roller::end_effector_state_t::IN_CONTACT) {
+                /*
                 contact_jacobians.push_back(
                     // We use LOCAL_WORLD_ALIGNED to get the jacobian in the world frame
                     // it basically gives us the jacobian of the end effector in the world frame
@@ -146,6 +148,20 @@ namespace whole_body_roller {
                 );
                 // M(q)qdd - S tau - J_c lambda_c = -h(q, qd)
                 // that is why the jacobian is multiplied by -1
+                */
+                std::cout << "im here upadating a daynamics constraint\n";
+
+                Eigen::Matrix<double, 6, Eigen::Dynamic> J(6, this->model_->nv);
+                // 2) fill J (this overload writes into J) — if your pinocchio version supports it:
+                pinocchio::getFrameJacobian(*this->model_, *this->data_,
+                                            this->model_->getFrameId(ee.frame),
+                                            pinocchio::LOCAL_WORLD_ALIGNED,
+                                            J); // J is now (6 x nv)
+                // 3) compute the desired matrix (-J).transpose() and force evaluation
+                Eigen::MatrixXd mat = (-J).transpose().eval(); // now a fully materialized (nv x 6) matrix
+                std::cout << "mat: \n" <<  mat << std::endl;
+                // 4) push the evaluated matrix into the vector
+                contact_jacobians.push_back(std::move(mat));
             }
         }
         update_success &= this->dynamics_constraint->set_contact_constraints(contact_jacobians);
@@ -154,13 +170,13 @@ namespace whole_body_roller {
         // this is to be left to the default, which is Convention::LOCAL
         // why? see https://chatgpt.com/share/686f2db8-4f7c-800e-86e3-665b6a965391
 
-        pinocchio::crba(*this->model_, *this->data_, this->joint_positions_);
+        pinocchio::crba(*this->model_, *this->data_, this->joint_positions_); // Calculates Mass matrix M(q)
         update_success &= this->dynamics_constraint->set_qdd_constraints(this->data_->M);
         pinocchio::rnea(*this->model_, 
                         *this->data_, 
                         this->joint_positions_, 
                         this->joint_velocities_, 
-                        Eigen::VectorXd::Zero(this->model_->nv));
+                        Eigen::VectorXd::Zero(this->model_->nv)); // Calculates non linear Terms h(q, dq)
         update_success &= this->dynamics_constraint->set_constraint_bias((-1)*(this->data_->tau)); // -h(q, qd)
         // we set the acceleration of rnea to 0 to avoid it computing the inverse dynamics of the Mass matrix
         // that is being done separately using crba as it needs to be fed into a different constraint

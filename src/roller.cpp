@@ -112,18 +112,22 @@ namespace whole_body_roller {
         std::cout << "trying to set casadi params\n";
         if (this->num_eq_constraints > 0) {
             std::cout << "eq constraints exist, adding them\n";
-            std::cout << "shape of eq_con " << this->optim->eq_con.size() << std::endl;
+            std::cout << "shape of eq_con " << this->optim->eq_con_param_.size() << std::endl;
             std::cout << "shape of eigen mat " << eq_constraint_matrix.rows() << ", " << eq_constraint_matrix.cols() << "\n";
-            casadi::DM dm_eqm = casadi_helpers::toDM(eq_constraint_matrix.transpose());
+
+            Eigen::MatrixXd tmp = eq_constraint_matrix.transpose().eval();
+            casadi::DM dm_eqm = casadi_helpers::toDM(tmp);
+            
             std::cout << "running set value\n";
             // this->optim->opti.set_value(this->optim->test_param, casadi_helpers::toDMcol(Eigen::VectorXd::Ones(1))); // this works or does it?
             // std::cout << "1d parameter value set\n";
-            std::cout << "shape of param " << this->optim->eq_con.size() << std::endl;
+            std::cout << "shape of param " << this->optim->eq_con_param_.size() << std::endl;
             // std::cout << "the eq matrix is " << eq_constraint_matrix << std::endl;
             // std::cout << "shape of dm" << dm_eqm.size() << std::endl;
-            this->optim->opti.set_value(this->optim->eq_con, dm_eqm); // this is throwing the error for whatever reason
-            // std::cout << "eq constraints exist, added matrix, now adding bias\n";
-            this->optim->opti.set_value(this->optim->eq_bias, casadi_helpers::toDMcol(eq_constraint_bias));
+            this->optim->opti.set_value(this->optim->eq_con_param_, dm_eqm); // this is throwing the error for whatever reason
+            std::cout << "eq constraints exist, added matrix, now adding bias\n";
+            Eigen::VectorXd tmp_bias = eq_constraint_bias.eval();
+            this->optim->opti.set_value(this->optim->eq_bias_param_, casadi_helpers::toDMcol(tmp_bias));
         }
 
         if (this->num_ineq_constraints > 0) {
@@ -132,8 +136,13 @@ namespace whole_body_roller {
             this->optim->opti.set_value(this->optim->ineq_bias, casadi_helpers::toDMcol(ineq_constraint_bias));
         }
 
-        // std::cout << "set casadi params\n";
+
+        std::cout << "set casadi params\n";
+        std::cout << "bias size:\n" << eq_constraint_bias.size() << std::endl;
+        std::cout << "bias :\n" << eq_constraint_bias << std::endl;
+        std::cout << "constraint_matrix :\n" << eq_constraint_matrix << std::endl;
         auto sol = this->optim->opti.solve();
+        std::cout << "QP solved" << std::endl;
 
         casadi::DM sol_z = sol.value(this->optim->z);
         Eigen::VectorXd sol_z_eigen = casadi_helpers::DM_to_Vector(sol_z);
@@ -185,6 +194,8 @@ namespace whole_body_roller {
         }
 
         std::cout << "updated all constraints \n";
+
+        std::cout << "steeeee" << "e\n" << "e\n" << "e\n" << "e\n" << "e\n" << "e\n" << "e\n" << "e\n" << "ep taken\n"<< std::endl;
         return this->solve_qp(); // solve the qp with the updated constraints
     }
 
