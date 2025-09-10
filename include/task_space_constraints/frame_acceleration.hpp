@@ -41,7 +41,7 @@ namespace whole_body_roller {
             if (!this->dynamics->is_dynamics_ready || !this->dynamics->model_->existFrame(this->frame_name_)) {
                 return false; // dynamics not ready or frame does not exist
             }
-            
+
             bool update_success = true;
 
             pinocchio::Data data_local(*this->dynamics->model_);
@@ -49,7 +49,8 @@ namespace whole_body_roller {
                                             data_local, 
                                             this->dynamics->joint_positions_);
 
-            //pinocchio::updateFramePlacements(*this->dynamics->model_, data_local);             
+            pinocchio::updateFramePlacements(*this->dynamics->model_, data_local);          
+
             std::cout << "model->nv: " << this->dynamics->model_->nv << std::endl;
             std::cout << "dec_v->nv_: " << this->dynamics->dec_v->nv_ << std::endl;      
             pinocchio::FrameIndex fid = this->dynamics->model_->getFrameId(this->frame_name_);
@@ -60,6 +61,7 @@ namespace whole_body_roller {
             std::cout << "data_local.M.rows() = " << data_local.M.rows() << ", cols = " << data_local.M.cols() << std::endl;
 
             Eigen::Matrix<double, 6, Eigen::Dynamic> J(6, this->dynamics->model_->nv);
+            J.setZero();
             // Get the Jacobian of the frame
             pinocchio::getFrameJacobian(*this->dynamics->model_, 
                                         data_local, 
@@ -82,29 +84,38 @@ namespace whole_body_roller {
             update_success &= this->constraint->set_qdd_constraints(jacobian);
             std::cout << "set qdd constraints for frame: " << this->frame_name_ << " update success : " << update_success << "\n";
 
-            double dt = 1e-8; // Small time step for numerical stability
+            double dt = 1e-6; // Small time step for numerical stability
 
             Eigen::VectorXd q_fut = Eigen::VectorXd::Zero(this->dynamics->model_->nq);
             q_fut = pinocchio::integrate(*this->dynamics->model_, 
                                          this->dynamics->joint_positions_, 
                                          this->dynamics->joint_velocities_ * dt);
+             std::cout << "old q: \n" <<  this->dynamics->joint_positions_ << std::endl;                            
+            std::cout << "q_fut: \n" << q_fut << std::endl;
+            //pinocchio::Data data_local2(*this->dynamics->model_);
 
-            pinocchio::Data data_local2(*this->dynamics->model_);
             pinocchio::computeJointJacobians(*this->dynamics->model_, 
-                                            data_local2, 
+                                            data_local, 
                                             q_fut);
-            pinocchio::updateFramePlacements(*this->dynamics->model_, data_local2);
+            pinocchio::updateFramePlacements(*this->dynamics->model_, data_local);
 
             Eigen::Matrix<double, 6, Eigen::Dynamic> J_fut(6, this->dynamics->model_->nv);
+            J_fut.setZero();
 
             pinocchio::getFrameJacobian(*this->dynamics->model_, 
-                                        data_local2, 
+                                        data_local, 
                                         this->dynamics->model_->getFrameId(this->frame_name_), 
                                         pinocchio::LOCAL_WORLD_ALIGNED, J_fut);
 
             Eigen::MatrixXd jacobian_fut = J_fut;
 
             Eigen::MatrixXd dJ = (jacobian_fut - jacobian) / dt; // Numerical derivative of the Jacobian
+            std::cout << "dt: \n" << dt <<"\n";
+            std::cout << "jac f: \n" << jacobian_fut <<"\n";
+            std::cout << "jac : \n" << jacobian <<"\n";
+            std::cout << "Matrix dJ: \n" << dJ <<"\n";
+            Eigen::VectorXd res = this->acceleration_target - dJ * this->dynamics->joint_velocities_; 
+            std::cout << "Resulting Matrix: \n" << res <<"\n";
             update_success &= this->constraint->set_constraint_bias(this->acceleration_target - dJ * this->dynamics->joint_velocities_); // Bias is the negative of the target acceleration
            
             // the selection matrix is set to all zeros in the constructor,

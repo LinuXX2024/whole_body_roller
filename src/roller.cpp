@@ -63,9 +63,14 @@ namespace whole_body_roller {
         std::cout << "size of qdd " << this->dec_v->nv_  << ", and the size of tau is " << this->dec_v->ntau_ << ", and the size of the contacts is " << this->dec_v->nc_ << "\n";
         // Create equality the constraint matrix
         Eigen::MatrixXd eq_constraint_matrix(nvars, num_eq_constraints);
+        eq_constraint_matrix.setZero();
         Eigen::VectorXd eq_constraint_bias(num_eq_constraints);
+        eq_constraint_bias.setZero();
         Eigen::MatrixXd ineq_constraint_matrix(nvars, num_ineq_constraints);
+        ineq_constraint_matrix.setZero();
         Eigen::VectorXd ineq_constraint_bias(num_ineq_constraints);
+        ineq_constraint_bias.setZero();
+
 
         // iterate through all constraints and append the constraint matrices and biases
         int eq_con_col = 0;
@@ -88,6 +93,8 @@ namespace whole_body_roller {
                     eq_constraint_bias.segment(eq_con_col, constraint->num_constraints_) = 
                         Eigen::VectorXd::Zero(constraint->num_constraints_);
                 }
+                std::cout << " constraint activ? : \n" << constraint_handler->is_constraint_active << std::endl;
+                std::cout << " not finished constraint bias: \n" << eq_constraint_bias << std::endl;
                 eq_con_col += constraint->num_constraints_;
             } else if (constraint->constraint_type_ == whole_body_roller::constraint_type_t::INEQUALITY) {
                 // append the inequality constraint matrix and bias
@@ -117,7 +124,7 @@ namespace whole_body_roller {
 
             Eigen::MatrixXd tmp = eq_constraint_matrix.transpose().eval();
             casadi::DM dm_eqm = casadi_helpers::toDM(tmp);
-            
+
             std::cout << "running set value\n";
             // this->optim->opti.set_value(this->optim->test_param, casadi_helpers::toDMcol(Eigen::VectorXd::Ones(1))); // this works or does it?
             // std::cout << "1d parameter value set\n";
@@ -141,15 +148,20 @@ namespace whole_body_roller {
         std::cout << "bias size:\n" << eq_constraint_bias.size() << std::endl;
         std::cout << "bias :\n" << eq_constraint_bias << std::endl;
         std::cout << "constraint_matrix :\n" << eq_constraint_matrix << std::endl;
-        auto sol = this->optim->opti.solve();
-        std::cout << "QP solved" << std::endl;
+        try {
+            auto sol = this->optim->opti.solve();
+            std::cout << "QP solved" << std::endl;
 
-        casadi::DM sol_z = sol.value(this->optim->z);
-        Eigen::VectorXd sol_z_eigen = casadi_helpers::DM_to_Vector(sol_z);
-        // std::cout << "the solution is " << sol_z_eigen << std::endl;
-        // std::cout << "the size of the solution is "  << sol_z_eigen.size() << "\n";
-        this->joint_torques = std::make_shared<Eigen::VectorXd>(sol_z_eigen.segment(this->dec_v->nv_-1, this->dec_v->ntau_));
-        // std::cout << "the torques are " << *(this->joint_torques) << std::endl;
+            casadi::DM sol_z = sol.value(this->optim->z);
+            Eigen::VectorXd sol_z_eigen = casadi_helpers::DM_to_Vector(sol_z);
+            // std::cout << "the solution is " << sol_z_eigen << std::endl;
+            // std::cout << "the size of the solution is "  << sol_z_eigen.size() << "\n";
+            this->joint_torques = std::make_shared<Eigen::VectorXd>(sol_z_eigen.segment(this->dec_v->nv_-1, this->dec_v->ntau_));
+            // std::cout << "the torques are " << *(this->joint_torques) << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Solver failed with exception: " << e.what() << std::endl;
+            return false;
+        }
 
         return true;
     }

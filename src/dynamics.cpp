@@ -152,6 +152,7 @@ namespace whole_body_roller {
                 std::cout << "im here upadating a daynamics constraint\n";
 
                 Eigen::Matrix<double, 6, Eigen::Dynamic> J(6, this->model_->nv);
+                J.setZero();
                 // 2) fill J (this overload writes into J) — if your pinocchio version supports it:
                 pinocchio::getFrameJacobian(*this->model_, *this->data_,
                                             this->model_->getFrameId(ee.frame),
@@ -171,12 +172,20 @@ namespace whole_body_roller {
         // why? see https://chatgpt.com/share/686f2db8-4f7c-800e-86e3-665b6a965391
 
         pinocchio::crba(*this->model_, *this->data_, this->joint_positions_); // Calculates Mass matrix M(q)
+        std::cout << "M for qdd constraints: \n" << this->data_->M << std::endl;
         update_success &= this->dynamics_constraint->set_qdd_constraints(this->data_->M);
+
+        std::cout << "model: \n" << *this->model_<< std::endl;
+        std::cout << "data: \n" << this->data_ << std::endl;
+        std::cout << "model positions: \n" << this->joint_positions_<< std::endl;
+        std::cout << "model velocities \n" << this->joint_velocities_<< std::endl;
+
         pinocchio::rnea(*this->model_, 
                         *this->data_, 
                         this->joint_positions_, 
                         this->joint_velocities_, 
                         Eigen::VectorXd::Zero(this->model_->nv)); // Calculates non linear Terms h(q, dq)
+        std::cout << "Tau that is added to dyn const " << this->data_->tau << std::endl;
         update_success &= this->dynamics_constraint->set_constraint_bias((-1)*(this->data_->tau)); // -h(q, qd)
         // we set the acceleration of rnea to 0 to avoid it computing the inverse dynamics of the Mass matrix
         // that is being done separately using crba as it needs to be fed into a different constraint
