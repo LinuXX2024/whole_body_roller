@@ -29,6 +29,7 @@ namespace whole_body_roller {
         Eigen::MatrixXd selection_matrix_joints = Eigen::MatrixXd::Identity(this->model_->nv - 6, this->model_->nv - 6);
         selection_matrix << selection_matrix_floating_base, 
                             selection_matrix_joints;
+        std::cout << "selection matrix \n " << selection_matrix << "\n";
         this->dynamics_constraint->set_tau_constraints(
             (-1)*(selection_matrix)
         );
@@ -160,7 +161,7 @@ namespace whole_body_roller {
                                             J); // J is now (6 x nv)
                 // 3) compute the desired matrix (-J).transpose() and force evaluation
                 Eigen::MatrixXd mat = (-J).transpose().eval(); // now a fully materialized (nv x 6) matrix
-                std::cout << "mat: \n" <<  mat << std::endl;
+                
                 // 4) push the evaluated matrix into the vector
                 contact_jacobians.push_back(std::move(mat));
             }

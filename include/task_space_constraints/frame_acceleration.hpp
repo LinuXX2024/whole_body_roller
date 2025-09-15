@@ -74,7 +74,7 @@ namespace whole_body_roller {
 
             //J = Eigen::MatrixXd::Zero(6, this->dynamics->model_->nv); for a test because the Jacobian contains very large numbers
             
-            std::cout << "Jacobian: " << jacobian << std::endl;
+            std::cout << "Jacobian: \n" << jacobian << std::endl;
         
 
             // std::cout << "jacobian size is " << jacobian.rows() << " x " << jacobian.cols() << "\n";
@@ -126,6 +126,172 @@ namespace whole_body_roller {
             // this needs to be called everytime as it refreshes the thingi based on the number of contact points
             
              std::cout << "acceleration constraint for frame: " << this->frame_name_ << "updated" <<"\n";
+            return update_success;
+        } 
+    };
+
+
+
+
+
+
+
+
+    class BaseAccelerationConstraint : public whole_body_roller::ConstraintHandler {
+    public:
+        std::shared_ptr<whole_body_roller::Dynamics> dynamics;
+        // std::shared_ptr<whole_body_roller::Constraint> constraint;
+        //std::string frame_name_;
+        Eigen::VectorXd acceleration_target;
+
+    public:
+        BaseAccelerationConstraint(std::shared_ptr<whole_body_roller::Dynamics> dyn ) 
+            : dynamics(dyn){
+            
+            this->acceleration_target = Eigen::VectorXd::Zero(6); // Initialize target acceleration to zero
+            this->constraint = std::make_shared<whole_body_roller::Constraint>(
+                this->dynamics->dec_v,
+                6, // constraints for se3 acceleration
+                whole_body_roller::constraint_type_t::EQUALITY // equality constraint for acceleration
+            );
+            this->constraint->set_tau_constraints(
+                Eigen::MatrixXd::Zero(6, this->dynamics->dec_v->nv_ - 6) // No tau constraints for acceleration
+            );
+        }
+
+        bool set_acceleration_target(const Eigen::VectorXd &acceleration) {
+            if (acceleration.size() != 6) {
+                return false; // size mismatch
+            }
+            this->acceleration_target = acceleration;
+            return true;
+        }
+
+        bool update_constraint() override {
+            if (!this->dynamics->is_dynamics_ready) {
+                std::cout << "base dynamics ready: " << this->dynamics->is_dynamics_ready <<"\n";
+                return false; // dynamics not ready 
+            }
+            bool update_success = true;
+
+            Eigen::Matrix<double, 6, Eigen::Dynamic> J(6, this->dynamics->model_->nv);
+
+            Eigen::MatrixXd selection_matrix = Eigen::MatrixXd::Zero(6, this->dynamics->model_->nv);
+
+            Eigen::MatrixXd selection_matrix_floating_base = Eigen::MatrixXd::Identity(6,6);
+            Eigen::MatrixXd selection_matrix_joints = Eigen::MatrixXd::Zero(6, this->dynamics->model_->nv - 6);
+            selection_matrix << selection_matrix_floating_base, 
+                                 selection_matrix_joints;
+
+            // Set the constraints for the acceleration
+            update_success &= this->constraint->set_qdd_constraints(selection_matrix);
+            std::cout << "qdd set  \n" << selection_matrix <<"\n";
+
+            update_success &= this->constraint->set_constraint_bias(this->acceleration_target); 
+            std::cout << "bias set  \n" << this->acceleration_target <<"\n";
+
+            this->constraint->ignore_contact_constraints();
+            // this needs to be called everytime as it refreshes the thingi based on the number of contact points
+            std::cout << "update_success \n" << update_success <<"\n";
+
+            return update_success;
+        } 
+    };
+
+
+
+
+
+
+
+    class ContactForceConstraint : public whole_body_roller::ConstraintHandler {
+    public:
+        std::shared_ptr<whole_body_roller::Dynamics> dynamics;
+        double pi = 3.14159265358979323846;
+        std::string frame_name_;
+        //Eigen::VectorXd acceleration_target; // For bias
+
+    public:
+        ContactForceConstraint(std::shared_ptr<whole_body_roller::Dynamics> dyn , std::string frame_name ) 
+            : dynamics(dyn), frame_name_(frame_name){
+            
+            //this->acceleration_target = Eigen::VectorXd::Zero(6); // Initialize target acceleration to zero
+
+            this->constraint = std::make_shared<whole_body_roller::Constraint>(
+                this->dynamics->dec_v,
+                9, // constraints for se3 acceleration
+                whole_body_roller::constraint_type_t::INEQUALITY // inequality equality constraint for forces
+            );
+            std::cout << "tau in contact force :  " << this->dynamics->dec_v->nv_ - 6<< "\n";
+
+            this->constraint->set_tau_constraints(
+                Eigen::MatrixXd::Zero(6, this->dynamics->dec_v->nv_ - 6) // No tau constraints for acceleration
+            );
+        }
+
+
+        bool update_constraint() override {
+            std::cout << "updateing COntact force constraint  " <<"\n";
+
+            if (!this->dynamics->is_dynamics_ready) {
+                return false; // dynamics not ready 
+            }
+            bool update_success = true;
+
+           int k = 8;
+           float mu = 0.6;
+           
+           std::vector<Eigen::MatrixXd> contact_;
+
+           Eigen::VectorXd b = Eigen::VectorXd::Zero(k+1);
+           Eigen::MatrixXd A = Eigen::MatrixXd::Zero(k+1, 3);
+           Eigen::MatrixXd contact_matrix = Eigen::MatrixXd::Zero(k+1, 6);
+           Eigen::MatrixXd mu_vec = (-mu)*(Eigen::MatrixXd::Ones(k+1, 1));
+           Eigen::MatrixXd S(k+1, 2);
+            std::cout << "vectores declared " <<"\n";
+
+            for(int i = 0; i < k; i++){
+                float theta = 2*pi*i/k + pi/k;
+                Eigen::Vector2f s = {std::cos(theta) , std::sin(theta)} ; 
+                S(i,0) = s[0];
+                S(i,1) = s[1];
+            }
+            S(k,0) = 0.0f;
+            S(k,1) = 0.0f;
+            mu_vec(k) = -1.0f;
+
+            std::cout << "after S "<< S <<"\n";
+            A << S, mu_vec;
+            std::cout << "after A "<< A <<"\n";
+
+            Eigen::MatrixXd filler = Eigen::MatrixXd::Zero(k+1, 3);
+            contact_matrix << A ,filler;
+            
+            Eigen::MatrixXd second_contact_dummy =  Eigen::MatrixXd::Zero(k+1, 6);
+
+            if(frame_name_ == "right_foot"){
+                contact_.push_back(contact_matrix);
+                contact_.push_back(second_contact_dummy);
+            }else if(frame_name_ == "left_foot"){
+                contact_.push_back(second_contact_dummy);
+                contact_.push_back(contact_matrix);
+            }
+
+            std::cout << "after push "<< contact_matrix <<"\n";            
+            Eigen::MatrixXd zero_qdd = (Eigen::MatrixXd::Zero(k+1, this->dynamics->dec_v->nv_));
+
+            update_success &= this->constraint->set_qdd_constraints(zero_qdd);
+            this->constraint->set_tau_constraints(
+                Eigen::MatrixXd::Zero(k+1, this->dynamics->dec_v->nv_ - 6) // No tau constraints for acceleration
+            );
+            std::cout << "tau c set "<< update_success <<"\n";
+
+            update_success &= this->constraint->set_constraint_bias(b); 
+   
+            this->constraint->contacts_are_considered = true;
+            this->constraint->set_contact_constraints(contact_);
+            std::cout << "update succses " << update_success <<"\n";
+
             return update_success;
         } 
     };

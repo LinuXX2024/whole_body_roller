@@ -131,7 +131,7 @@ namespace whole_body_roller {
             std::cout << "shape of param " << this->optim->eq_con_param_.size() << std::endl;
             // std::cout << "the eq matrix is " << eq_constraint_matrix << std::endl;
             // std::cout << "shape of dm" << dm_eqm.size() << std::endl;
-            this->optim->opti.set_value(this->optim->eq_con_param_, dm_eqm); // this is throwing the error for whatever reason
+            this->optim->opti.set_value(this->optim->eq_con_param_, dm_eqm); 
             std::cout << "eq constraints exist, added matrix, now adding bias\n";
             Eigen::VectorXd tmp_bias = eq_constraint_bias.eval();
             this->optim->opti.set_value(this->optim->eq_bias_param_, casadi_helpers::toDMcol(tmp_bias));
@@ -142,22 +142,39 @@ namespace whole_body_roller {
             this->optim->opti.set_value(this->optim->ineq_con, casadi_helpers::toDM(ineq_constraint_matrix.transpose()));
             this->optim->opti.set_value(this->optim->ineq_bias, casadi_helpers::toDMcol(ineq_constraint_bias));
         }
+        
+        //set slack variables
+        Eigen::VectorXd slack_vector = Eigen::VectorXd(this->num_eq_constraints); 
+        slack_vector.setOnes();         
+        slack_vector.tail(this->num_eq_constraints - 6).setConstant(0.0); 
+
+        this->optim->opti.set_initial(this->optim->slack_variables, casadi_helpers::toDMcol(slack_vector));
+        std::cout << "slac variables "<<  this->optim->slack_variables << std::endl;
 
 
         std::cout << "set casadi params\n";
         std::cout << "bias size:\n" << eq_constraint_bias.size() << std::endl;
-        std::cout << "bias :\n" << eq_constraint_bias << std::endl;
-        std::cout << "constraint_matrix :\n" << eq_constraint_matrix << std::endl;
+        std::cout << "eq_bias :\n" << eq_constraint_bias << std::endl;
+        std::cout << "eq_constraint_matrix :\n" << eq_constraint_matrix.transpose() << std::endl;
+        std::cout << "ieq_bias :\n" << ineq_constraint_bias << std::endl;
+        std::cout << "ineq_constraint_matrix :\n" << ineq_constraint_matrix.transpose() << std::endl;
+        //std::cout << "optim bias :\n" << this->optim->eq_con_param_ << std::endl;
+        //std::cout << "optim constraint_matrix :\n" << eq_constraint_matrix.transpose().eval() << std::endl;
         try {
             auto sol = this->optim->opti.solve();
             std::cout << "QP solved" << std::endl;
 
             casadi::DM sol_z = sol.value(this->optim->z);
             Eigen::VectorXd sol_z_eigen = casadi_helpers::DM_to_Vector(sol_z);
+            std::cout << "QP solved with \n" << sol_z_eigen << std::endl;
+            
+            std::cout << "nv_-1 \n" << this->dec_v->nv_-1 << std::endl;
+            std::cout << "ntau \n" << this->dec_v->ntau_ << std::endl;
+
             // std::cout << "the solution is " << sol_z_eigen << std::endl;
             // std::cout << "the size of the solution is "  << sol_z_eigen.size() << "\n";
-            this->joint_torques = std::make_shared<Eigen::VectorXd>(sol_z_eigen.segment(this->dec_v->nv_-1, this->dec_v->ntau_));
-            // std::cout << "the torques are " << *(this->joint_torques) << std::endl;
+            this->joint_torques = std::make_shared<Eigen::VectorXd>(sol_z_eigen.segment(this->dec_v->nv_, this->dec_v->ntau_));
+            std::cout << "the torques are " << *(this->joint_torques) << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "Solver failed with exception: " << e.what() << std::endl;
             return false;
@@ -186,6 +203,7 @@ namespace whole_body_roller {
     bool Roller::step() {
         // first update the dynamics constraint as that changes dec_v
         // then update the frame/joint acceleration constraints
+        std::cout << "checking if constraint is valid\n" << this->constraint_handlers.size()<<" \n";
         for (auto& handler : this->constraint_handlers) {
             if (!handler->update_constraint()) {
                 std::cout << "checking if constraint is valid\n";
@@ -196,6 +214,7 @@ namespace whole_body_roller {
         // TODO check if dec_v->get_ndvs() has changed or if the number of constraints 
         // have changed and update the optimizer if it has
         // are there any other cases where we need to update the optimizer?
+        std::cout << "befor consolidating \n";
         this->consolidate_constraints();
         if (this->optim->z.size().first != this->dec_v->get_ndv() || 
             this->num_eq_constraints != this->optim->eq_con.size().first || 

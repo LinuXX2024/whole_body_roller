@@ -69,6 +69,7 @@ namespace casadi_helpers {
         ParamT eq_bias_param_;
         casadi::Opti opti;
         casadi::MX z; // Decision variables
+        casadi::MX slack_variables; // slack variables
         casadi::MX obj; // Objective function
         casadi::MX eq_con; // Equality constraints
         casadi::MX eq_bias; // Equality constraint bias
@@ -81,19 +82,38 @@ namespace casadi_helpers {
             // this->opti = casadi::Opti();
             // this->test_param = this->opti.parameter();
             this->z = this->opti.variable(ndv); // decision variables
+            this->slack_variables = this->opti.variable(neq); // slack variables
+
+            int nv_ = 25;
+            int ntau_ = 19;
+            int n_fc = 12; //should not be hardcoded
+
+            Eigen::VectorXd weights(ndv);
+            weights.setOnes();         
+            weights.tail(n_fc).setConstant(0.01); // less penalization for contact forces
+            weights.segment(nv_, ntau_).setConstant(5.0); // more penelization for torque
+            std::vector<double> w_vec(weights.data(), weights.data() + weights.size());
+            std::cout << "weights "<<  w_vec << std::endl;
+
+            casadi::MX W = casadi::MX::diag(casadi::DM(w_vec));
+            casadi::MX Wslack = 1000 * casadi::MX::eye(neq); //Weights for slack variable
+
+
             if (neq > 0) {
                 this->eq_con_param_ = this->opti.parameter(neq, ndv);
                 this->eq_bias_param_ = this->opti.parameter(neq);
                 this->eq_con = this->eq_con_param_;
                 this->eq_bias = this->eq_bias_param_;
-                this->opti.subject_to(casadi::MX::mtimes(eq_con, z) == eq_bias); // equality constraints
+                this->opti.subject_to(casadi::MX::mtimes(eq_con, z) + this->slack_variables == eq_bias); // equality constraints
+
+                this->opti.subject_to(this->slack_variables >= 0); //slack constraint
             }
             if (nineq > 0) {
                 this->ineq_con = this->opti.parameter(nineq, ndv);
                 this->ineq_bias = this->opti.parameter(nineq);
-                this->opti.subject_to(casadi::MX::mtimes(ineq_con, z) >= ineq_bias); // inequality constraints
+                this->opti.subject_to(casadi::MX::mtimes(ineq_con, z) <= ineq_bias); // inequality constraints
             }
-            this->obj = casadi::MX::dot(z, z); // Initialize objective function to zero
+            this->obj = casadi::MX::mtimes({z.T(), W, z})  + casadi::MX::mtimes({this->slack_variables.T(), Wslack, this->slack_variables}); // Initialize objective function to zero
             this->opti.minimize(this->obj); // Set the objective function
             this->opti.solver("ipopt");
         }
